@@ -7,9 +7,6 @@ Original file is located at
     https://colab.research.google.com/drive/1_svWCCN46jhlyY7wZgsZa9HRyte3N6PB
 """
 
-#@title Imports
-!pip install git+https://gitlab.com/neu-autonomy/gym-neu-racing.git
-
 import gymnasium
 import numpy as np
 import gym_neu_racing
@@ -19,9 +16,134 @@ import matplotlib.pyplot as plt
 from typing import Callable
 import matplotlib.cm as cmx
 import matplotlib.colors as colors
+from typing import Any, Optional
+from PIL import Image
 
-#@title Motion Models
+class Map:
+    """2D gridmap for mobile robotics simulator (NEU EECE 5550)."""
 
+    def __init__(
+        self,
+        x_width: float,
+        y_width: float,
+        grid_cell_size: float,
+        map_filename: Optional[str] = None,
+    ):
+        # Set desired map parameters (regardless of actual image file dims)
+        self.x_width = x_width
+        self.y_width = y_width
+        self.grid_cell_size = grid_cell_size
+
+        # Load the image file corresponding to the static map, and resize
+        # according to desired specs
+        dims = (
+            int(self.x_width / self.grid_cell_size),
+            int(self.y_width / self.grid_cell_size),
+        )
+        if map_filename is None:
+            self.static_map = np.zeros(dims, dtype=bool)
+        else:
+            self.static_map = np.array(Image.open(map_filename).convert("L"))
+            if self.static_map.shape != dims:
+                self.static_map = np.array(
+                    Image.fromarray(self.static_map).resize(
+                        size=dims, resample=Image.Resampling.NEAREST
+                    )
+                )
+            self.static_map = np.invert(self.static_map).astype(bool)
+            #1.0 -> occupied, 0.0 -> free, 0.5 -> unknown
+
+        self.origin_in_G = np.array(  # pylint:disable=invalid-name
+            [
+                (self.x_width / 2.0),
+                (self.y_width / 2.0),
+            ]
+        )
+
+    def draw_map(self, show: bool = True, ax: Optional[Any] = None):
+        """Draw black+white 2D picture of occupancy grid."""
+
+        x = np.arange(
+            (-self.x_width + self.grid_cell_size) / 2.0,
+            (self.x_width + self.grid_cell_size) / 2.0,
+            self.grid_cell_size,
+        )
+        y = np.arange(
+            (-self.y_width + self.grid_cell_size) / 2.0,
+            (self.y_width + self.grid_cell_size) / 2.0,
+            self.grid_cell_size,
+        )
+
+        if ax is None:
+            _, ax = plt.subplots()
+
+        ax.pcolormesh(x, -y, self.static_map, shading="auto", cmap="gray_r")
+        if show:
+            plt.show()
+        return ax
+
+    def world_coordinates_to_map_indices(
+        self, pos_in_W: np.ndarray  # pylint:disable=invalid-name
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Transform world coords to map indices."""
+
+        # Args:
+        # - pos_in_W: (n, 2) array of (x, y) coordinates in the world frame
+        # Returns:
+        # - pos_in_G_int: the indices of the gridmap corresponding to each
+        #       vector in pos_in_W
+        # - in_map: boolean of whether each vector in pos_in_W was within
+        #       the map's boundaries
+
+        # Frame IDs:
+        # W: world frame
+        # G: grid/map frame
+
+        # pylint:disable=invalid-name
+
+        # Transform pts from W to G (as real numbers)
+        input_dims = pos_in_W.shape
+        pos_in_W = pos_in_W.reshape((-1, 2))
+        T_WtoG = (1 / self.grid_cell_size) * np.array(
+            [
+                [0, -1, self.origin_in_G[0]],
+                [1, 0, self.origin_in_G[1]],
+                [0, 0, 1],
+            ]
+        )
+        pos_in_W_heterogeneous = np.hstack(
+            [pos_in_W, np.ones((pos_in_W.shape[0], 1))]
+        )
+        pos_in_G_real = np.dot(T_WtoG, pos_in_W_heterogeneous.T).T[:, 0:2]
+
+        # Discretize the grid coordinates into cell indices
+        pos_in_G_int = np.floor(pos_in_G_real).astype(int)
+
+        # Determine which vectors of pos_in_W are within the map's boundaries
+        in_map = np.logical_and.reduce(
+            (
+                pos_in_G_int[:, 0] >= 0,
+                pos_in_G_int[:, 1] >= 0,
+                pos_in_G_int[:, 0] < self.static_map.shape[0],
+                pos_in_G_int[:, 1] < self.static_map.shape[1],
+            )
+        )
+
+        # For all vectors in pos_in_W that *werent* in the map, the
+        # returned map index will be -1 --> make sure to look at
+        # in_map as well
+
+        # pylint:disable=singleton-comparison
+        not_in_map_inds = np.where(in_map == False)  # noqa: E712
+        # pylint:enable=singleton-comparison
+        pos_in_G_int[not_in_map_inds[0], :] = -1
+        pos_in_G_int = pos_in_G_int.reshape(input_dims)
+        in_map = in_map.reshape(input_dims[:-1])
+
+        # pylint:enable=invalid-name
+
+        return pos_in_G_int, in_map
+    
 class MotionModel:
     """Abstract class for modeling the motion of a 2D mobile robot."""
 
@@ -192,15 +314,6 @@ class MPPIRacetrack:
 
         self.static_map = static_map
 
-        #set way points
-        # self.waypoints = np.array(
-        #     [
-        #         [-3.0, 0.0],
-        #         [-2.0, 4.0],
-        #         [4.0, 1.0],
-        #         [-3.0, 0.0],
-        #     ]
-        # )
         self.waypoints = np.array(
             [
                 [1.0, -1.5]
@@ -316,6 +429,7 @@ class MPPIRacetrack:
 #@title Iterative LQR
 class AncillaryILQG:
   def __init__(self,
+               waypoints = None, 
                max_iter = 100,
                x0 = np.zeros(3),
                num_states = 3,
@@ -339,6 +453,7 @@ class AncillaryILQG:
     self.lmbd_max = 1000.0
     self.nominal_states = None
     self.nominal_actions = None
+    self.waypoints = waypoints 
 
   def ilqg(self, x0, target):
     first_iter = True
@@ -526,10 +641,11 @@ class TubeMPPIRacetrack:
       z_traj = self.simulate(self.z, v)
       return z_traj, v
 
-    def get_action(self, x0):
+    def get_action(self, x0, waypoint):
       if self.z is None:
         self.z = x0
-
+      self.nominal.waypoints = np.array(waypoint)
+      self.ancillary.waypoints = np.array(waypoint)
       #solve the nominal system and get the states and controls
       z_traj, v = self.solve_nominal()
       # plt.scatter(z_traj[:, 0], z_traj[:, 1])
@@ -549,137 +665,6 @@ class TubeMPPIRacetrack:
       return u, v
 
 """2D gridmap for mobile robotics simulator (NEU EECE 5550)."""
-
-from typing import Any, Optional
-
-import matplotlib.pyplot as plt
-import numpy as np
-from PIL import Image
-
-class Map:
-    """2D gridmap for mobile robotics simulator (NEU EECE 5550)."""
-
-    def __init__(
-        self,
-        x_width: float,
-        y_width: float,
-        grid_cell_size: float,
-        map_filename: Optional[str] = None,
-    ):
-        # Set desired map parameters (regardless of actual image file dims)
-        self.x_width = x_width
-        self.y_width = y_width
-        self.grid_cell_size = grid_cell_size
-
-        # Load the image file corresponding to the static map, and resize
-        # according to desired specs
-        dims = (
-            int(self.x_width / self.grid_cell_size),
-            int(self.y_width / self.grid_cell_size),
-        )
-        if map_filename is None:
-            self.static_map = np.zeros(dims, dtype=bool)
-        else:
-            self.static_map = np.array(Image.open(map_filename).convert("L"))
-            if self.static_map.shape != dims:
-                self.static_map = np.array(
-                    Image.fromarray(self.static_map).resize(
-                        size=dims, resample=Image.Resampling.NEAREST
-                    )
-                )
-            self.static_map = np.invert(self.static_map).astype(bool)
-            #1.0 -> occupied, 0.0 -> free, 0.5 -> unknown
-
-        self.origin_in_G = np.array(  # pylint:disable=invalid-name
-            [
-                (self.x_width / 2.0),
-                (self.y_width / 2.0),
-            ]
-        )
-
-    def draw_map(self, show: bool = True, ax: Optional[Any] = None):
-        """Draw black+white 2D picture of occupancy grid."""
-
-        x = np.arange(
-            (-self.x_width + self.grid_cell_size) / 2.0,
-            (self.x_width + self.grid_cell_size) / 2.0,
-            self.grid_cell_size,
-        )
-        y = np.arange(
-            (-self.y_width + self.grid_cell_size) / 2.0,
-            (self.y_width + self.grid_cell_size) / 2.0,
-            self.grid_cell_size,
-        )
-
-        if ax is None:
-            _, ax = plt.subplots()
-
-        ax.pcolormesh(x, -y, self.static_map, shading="auto", cmap="gray_r")
-        if show:
-            plt.show()
-        return ax
-
-    def world_coordinates_to_map_indices(
-        self, pos_in_W: np.ndarray  # pylint:disable=invalid-name
-    ) -> tuple[np.ndarray, np.ndarray]:
-        """Transform world coords to map indices."""
-
-        # Args:
-        # - pos_in_W: (n, 2) array of (x, y) coordinates in the world frame
-        # Returns:
-        # - pos_in_G_int: the indices of the gridmap corresponding to each
-        #       vector in pos_in_W
-        # - in_map: boolean of whether each vector in pos_in_W was within
-        #       the map's boundaries
-
-        # Frame IDs:
-        # W: world frame
-        # G: grid/map frame
-
-        # pylint:disable=invalid-name
-
-        # Transform pts from W to G (as real numbers)
-        input_dims = pos_in_W.shape
-        pos_in_W = pos_in_W.reshape((-1, 2))
-        T_WtoG = (1 / self.grid_cell_size) * np.array(
-            [
-                [0, -1, self.origin_in_G[0]],
-                [1, 0, self.origin_in_G[1]],
-                [0, 0, 1],
-            ]
-        )
-        pos_in_W_heterogeneous = np.hstack(
-            [pos_in_W, np.ones((pos_in_W.shape[0], 1))]
-        )
-        pos_in_G_real = np.dot(T_WtoG, pos_in_W_heterogeneous.T).T[:, 0:2]
-
-        # Discretize the grid coordinates into cell indices
-        pos_in_G_int = np.floor(pos_in_G_real).astype(int)
-
-        # Determine which vectors of pos_in_W are within the map's boundaries
-        in_map = np.logical_and.reduce(
-            (
-                pos_in_G_int[:, 0] >= 0,
-                pos_in_G_int[:, 1] >= 0,
-                pos_in_G_int[:, 0] < self.static_map.shape[0],
-                pos_in_G_int[:, 1] < self.static_map.shape[1],
-            )
-        )
-
-        # For all vectors in pos_in_W that *werent* in the map, the
-        # returned map index will be -1 --> make sure to look at
-        # in_map as well
-
-        # pylint:disable=singleton-comparison
-        not_in_map_inds = np.where(in_map == False)  # noqa: E712
-        # pylint:enable=singleton-comparison
-        pos_in_G_int[not_in_map_inds[0], :] = -1
-        pos_in_G_int = pos_in_G_int.reshape(input_dims)
-        in_map = in_map.reshape(input_dims[:-1])
-
-        # pylint:enable=invalid-name
-
-        return pos_in_G_int, in_map
 
 # This is for testing on the given gym env, this is not necessary for the rospy impl
 # Create an instance of the mobile robot simulator we'll use this semester
