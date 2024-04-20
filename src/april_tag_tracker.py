@@ -75,7 +75,7 @@ class AprilTagTracker(Mapping):
 
         # Transform T_OR to T_RO
         self.T_RO[:3, :3] = r.T
-        self.T_RO[:3, -1] = -(r.T) @ np.array(t)
+        self.T_RO[:3, -1] = -(self.T_OR[:3, -1].T) @ np.array(self.T_OR[:3, :3])
 
     def tag_update_callback(self, tag_detections: AprilTagDetection):
         

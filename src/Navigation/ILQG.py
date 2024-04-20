@@ -25,7 +25,7 @@ class AncillaryILQG:
     self.u = np.zeros((K, 2))
     self.max_iter = max_iter
     self.motion_model = motion_model
-    self.eps_convergence = 1e-4
+    self.eps_convergence = 1e-3
     self.lmbd_factor = 10.0
     self.lmbd_max = 1000.0
     self.nominal_states = None
@@ -70,7 +70,7 @@ class AncillaryILQG:
 
         V_x = Q_x - np.dot(K[t].T, np.dot(Q_uu, k[t]))
         V_xx = Q_xx - np.dot(K[t].T, np.dot(Q_uu, K[t]))
-
+        
       u_new = np.zeros((self.K, self.num_actions))
       x_new = x0.copy()
       for t in range(self.K - 1):
@@ -87,9 +87,10 @@ class AncillaryILQG:
         u = np.copy(u_new)
         old_cost = np.copy(cost)
         cost = np.copy(cost_new)
+        # cost = min(cost, 1e-9)
         first_iter = True
 
-        if i > 0 and ((np.abs(old_cost - cost)/cost) < self.eps_convergence):
+        if (i > 0) and ((np.abs(old_cost - cost)/cost) < self.eps_convergence):
           # print(f"Converged at iteration {i}")
           break
       else:
@@ -116,7 +117,7 @@ class AncillaryILQG:
       f_x[t] = np.eye(self.num_states) + A * self.dt
       f_u[t] = B * self.dt
 
-      l[t], l_x[t], l_xx[t], l_u[t], l_uu[t], l_ux[t] = self.calculate_cost(x_traj[t] - self.nominal_states[t], u[t] - self.nominal_actions[t])
+      l[t], l_x[t], l_xx[t], l_u[t], l_uu[t], l_ux[t] = self.calculate_cost_with_derivatives(x_traj[t] - self.nominal_states[t], u[t] - self.nominal_actions[t])
       l[t] *= self.dt
       l_x[t] *= self.dt
       l_xx[t] *= self.dt
@@ -124,7 +125,7 @@ class AncillaryILQG:
       l_uu[t] *= self.dt
       l_ux[t] *= self.dt
 
-    l[-1], l_x[-1], l_xx[-1] = self.final_cost(x_traj[-1] - self.nominal_states[-1], u[-1] - self.nominal_actions[-1])
+    l[-1], l_x[-1], l_xx[-1] = self.final_cost_with_derivative(x_traj[-1] - self.nominal_states[-1], u[-1] - self.nominal_actions[-1])
 
     return x_traj, f_x, f_u, l, l_x, l_xx, l_u, l_uu, l_ux, A, B, old_cost
 
@@ -145,21 +146,21 @@ class AncillaryILQG:
     for i in range(self.num_actions):
       u_plus = u.copy()
       u_plus[i] += eps
-      next_plus, _ = self.motion_model_step(x.copy(), u_plus)
+      next_plus, _ = self.motion_model_step(x, u_plus)
       u_minus = u.copy()
       u_minus[i] -= eps
-      next_minus, _ = self.motion_model_step(x.copy(), u_minus)
+      next_minus, _ = self.motion_model_step(x, u_minus)
       B[:, i] = (next_plus - next_minus) / (2 * eps)
 
     return A, B
 
   def motion_model_step(self, x, u):
-    x_next = self.motion_model.step(x.copy(), u.copy())
+    x_next = self.motion_model.step(x, u)
     x_change = (x_next - x) / self.dt
 
     return x_change, x_next
 
-  def calculate_cost(self, x, u):
+  def calculate_cost_with_derivatives(self, x, u):
     l = np.linalg.norm(x) #+ np.linalg.norm(u)
     l_x = 2 * (x)
     l_xx = 2 * np.eye(3)
@@ -169,23 +170,27 @@ class AncillaryILQG:
 
     return l, l_x, l_xx, l_u, l_uu, l_ux
 
-  def final_cost(self, x, u):
+  def calculate_cost_batch(self, x, u): 
+    return np.sum(np.linalg.norm(x, axis = 1))
+
+  def final_cost_with_derivative(self, x, u):
     l = 1000 * np.linalg.norm(x)
     l_x = 2000 * x
     l_xx = 2000 * np.eye(3)
 
     return l, l_x, l_xx
 
+  def final_cost(self, x, u): 
+    return 1000*np.linalg.norm(x)
+
   def simulate(self, x0, u):
     xs = np.zeros((self.K, self.num_states))
     xs[0] = x0
-    cost = 0.0
     for i in range(self.K-1):
-      xs[i+1] = self.motion_model.step(xs[i].copy(), u[i].copy())
-      l, *_ = self.calculate_cost(self.nominal_states[i]-xs[i], u[i] - self.nominal_actions[i])
-      cost = self.dt * l
-
-    l_f, *_ = self.final_cost(self.nominal_states[-1]-xs[-1], u[-1] - self.nominal_actions[-1])
+      xs[i+1] = self.motion_model.step(xs[i], u[i])
+    
+    cost = self.calculate_cost_batch(self.nominal_states[:self.K-1] - xs[:self.K-1], None) * self.dt
+    l_f = self.final_cost(self.nominal_states[self.K-1]-xs[self.K-1], u[-1] - self.nominal_actions[-1])
     cost += l_f
 
     return xs, cost

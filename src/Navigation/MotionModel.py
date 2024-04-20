@@ -28,7 +28,7 @@ class Unicycle(MotionModel):
 
         # clip the action to be within the control limits
         clipped_action = np.clip(
-            action, np.array([0, -2*np.pi]), np.array([0.5, 2*np.pi])
+            action, np.array([0., -np.pi]), np.array([1., np.pi]) # @SAI I changed this, not sure if this helps?
         )
 
         current_state = current_state.reshape((-1, 3))

@@ -32,6 +32,7 @@
         <param name="pose_stamped" value="$(arg pose_stamped)" /> 
         <param name="tags_topic" value="$(arg tags_topic)" /> 
         <param name="goal_reset" value="$(arg goal_reset)" /> 
+        <param name="goal_update" value="$(arg goal_update)" /> 
     </node>
 
     <!-- Tag Detection Node -->
@@ -50,7 +51,7 @@
     </node>
 
     <!-- Frontier Node -->
-    <node pkg="squirtle" type="update_goal.py" name="goal_update_node" output="screen">
+    <node pkg="squirtle" type="update_goal_client.py" name="goal_update_node" output="screen">
         <param name="goal_update" value="$(arg goal_update)" /> 
         <param name="goal_reset" value="$(arg goal_reset)" /> 
         <param name="occupancy_map_topic" value="$(arg occupancy_map_topic)" /> 

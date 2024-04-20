@@ -1,0 +1,5 @@
+# lidar_fontiers.msg
+
+nav_msgs/OccupancyGrid occupancy_map
+std_msgs/Int32MultiArray occupied_frontiers
+std_msgs/Int32MultiArray unoccupied_frontiers

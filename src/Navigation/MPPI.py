@@ -10,7 +10,7 @@ class MPPIRacetrack(Mapping):
     def __init__(
         self,
         static_map,
-        num_rollouts_per_iteration=50,
+        num_rollouts_per_iteration=100,
         num_steps_per_rollout=20,
         num_iterations=20,
         lamb=10,
@@ -18,15 +18,15 @@ class MPPIRacetrack(Mapping):
     ):
         super(MPPIRacetrack, self).__init__()
         self.num_rollouts_per_iteration = num_rollouts_per_iteration
-        self.num_steps_per_rollout = num_steps_per_rollout
+        self.num_steps_per_rollout = num_steps_per_rollout - 1
         self.num_iterations = num_iterations
         self.lamb = lamb
 
         self.motion_model = motion_model
         self.action_limits = np.vstack(
             [
-                np.array([0., -2*np.pi]), 
-                np.array([.5,  2*np.pi])
+                np.array([0., -np.pi]), # @SAI I changed this, not sure if this helps? 
+                np.array([1.,  np.pi])
             ]
         )
 
@@ -84,8 +84,8 @@ class MPPIRacetrack(Mapping):
         nominal_actions = self.nominal_actions.copy()
         for iteration in range(self.num_iterations):
             delta_actions = np.random.uniform(
-                low=-0.5,
-                high=0.5,
+                low=-2.0,
+                high=2.0,
                 size=(
                     self.num_rollouts_per_iteration,
                     self.num_steps_per_rollout,
@@ -132,4 +132,4 @@ class MPPIRacetrack(Mapping):
 
         self.nominal_actions = np.roll(best_rollout_actions, -1, axis=0)
 
-        return best_rollout_actions
+        return best_rollout_actions, best_score_so_far, best_rollout_so_far

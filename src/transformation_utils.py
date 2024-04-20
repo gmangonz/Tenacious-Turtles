@@ -3,13 +3,40 @@ from scipy.spatial.transform import Rotation as R
 from geometry_msgs.msg import Pose, PoseStamped
 import rospy
 
-T_RC = np.array([[1., 0., 0., 0.], # TODO: Get Camera's frame w.r.t. Robot's base
-                 [0., 1., 0., 0.], 
-                 [0., 0., 1., 0.],  
-                 [0., 0., 0., 1.]])
-T_CR = np.eye(4)
-T_CR[:3, :3] = T_RC[:3, :3].T
-T_CR[:3, -1] = -(T_RC[:3, -1].T) @ np.array(T_RC[:3, -1])
+
+T_RC = np.array([
+    [1, 0, 0, 0.032],
+    [0, 1, 0, 0],
+    [0, 0, 1, 0.11],
+    [0, 0, 0, 1]
+])
+T_CR = np.array([
+    [1, 0, 0, -0.032],
+    [0, 1, 0, 0],
+    [0, 0, 1, -0.11],
+    [0, 0, 0, 1]
+])
+
+base_to_scan = np.array([
+    [1, 0, 0, -0.032],
+    [0, 1, 0, 0],
+    [0, 0, 1, 0.172],
+    [0, 0, 0, 1]])
+scan_to_base = np.array([
+    [1, 0, 0, 0.032],
+    [0, 1, 0, 0],
+    [0, 0, 1, -0.172],
+    [0, 0, 0, 1]])
+scan_to_camera = np.array([
+    [1, 0, 0, 0.0624],
+    [0, 1, 0, 0],
+    [0, 0, 1, -0.062],
+    [0, 0, 0, 1]])
+camera_to_scan = np.array([
+    [1, 0, 0, -0.064],
+    [0, 1, 0, 0],
+    [0, 0, 1, 0.062],
+    [0, 0, 0, 1]])
 
 
 def get_matrix_pose_from_quat(pose, return_matrix=True):

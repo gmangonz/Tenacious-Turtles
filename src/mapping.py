@@ -27,7 +27,10 @@ class Mapping(Grid):
             self.grid_size_x, 
             self.grid_size_y
         ))
-        
+        self.occupancy_grid_logodds_cam_filter = np.zeros((
+            self.grid_size_x, 
+            self.grid_size_y
+        ))
         self.log_odds_free  = self._prob_to_log_odds(p_free)
         self.log_odds_occ   = self._prob_to_log_odds(p_occ)
         self.log_odds_prior = self._prob_to_log_odds(p_prior)
@@ -36,19 +39,16 @@ class Mapping(Grid):
             [1/(self.grid_resolution), 0, self.grid_origin_x], 
             [0, 1/(self.grid_resolution), self.grid_origin_y], 
             [0,                        0,                  1]
-        ]) *1    
+        ])
+        
     def _log_odds_to_prob(self, log_odds: np.ndarray) -> np.ndarray:
         return 1 - 1 / (1e-6 + 1 + np.exp(log_odds))
 
     def _prob_to_log_odds(self, prob: np.ndarray) -> np.ndarray:
         return np.log(prob / (1e-6 + 1 - prob))
-
-    # def _coords_to_grid_indicies(self, x, y, w, sign=1):
-    #     grid_x = int((x + sign * self.grid_origin_x) / self.grid_resolution)
-    #     grid_y = int((y + sign * self.grid_origin_y) / self.grid_resolution)
-    #     return np.array([grid_x, grid_y, int(w)])
     
     def _world_coordinates_to_map_indices(self, position_in_world):
+
         position_in_world = np.array(position_in_world)
         position_in_world = position_in_world.reshape((-1, 2))
         column_ones = np.ones((position_in_world.shape[0], 1))

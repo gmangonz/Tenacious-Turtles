@@ -1,0 +1,4 @@
+# lidar_fontiers.msg
+
+std_msgs/Int32MultiArray occupied_frontiers
+std_msgs/Int32MultiArray unoccupied_frontiers
